@@ -4,6 +4,127 @@ import re
 from collections import Counter
 import random
 import time
+from openai import OpenAI
+from dotenv import load_dotenv
+import os
+import json
+load_dotenv("keys.env")
+
+api_key = os.getenv("OPENROUTER_API_KEY")
+
+client = OpenAI(
+    base_url="https://openrouter.ai/api/v1",
+    api_key=api_key
+)
+
+def ai_generate(prompt):
+
+    try:
+        response = client.chat.completions.create(
+
+            model="openai/gpt-oss-20b",
+
+            messages=[
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ],
+
+            temperature=0.4,
+            max_tokens=900
+        )
+
+        return response.choices[0].message.content
+
+    except Exception as e:
+        return f"❌ AI Error:\n\n{str(e)}"
+def ai_summary(text, mode):
+
+    if mode == "Detailed":
+        prompt = f"""
+Generate a detailed summary.
+
+Rules:
+- Explain every important concept.
+- 10-12 bullet points.
+- Student-friendly language.
+
+Content:
+{text}
+"""
+
+    elif mode == "Smart Summary":
+        prompt = f"""
+Generate a smart summary.
+
+Rules:
+- Only 5 important bullet points.
+- Short and crisp.
+- Revision friendly.
+
+Content:
+{text}
+"""
+
+    elif mode == "Exam Notes":
+        prompt = f"""
+Generate exam notes.
+
+Rules:
+- Use headings.
+- Use bullet points.
+- Highlight important keywords.
+- No paragraphs.
+
+Content:
+{text}
+"""
+
+    elif mode == "Beginner":
+        prompt = f"""
+Explain this topic like a teacher explaining to a beginner.
+
+Rules:
+- Very simple English.
+- Give examples.
+- Easy to understand.
+
+Content:
+{text}
+"""
+
+    elif mode == "Advanced":
+        prompt = f"""
+Explain this topic for engineering students.
+
+Rules:
+- Use technical terms.
+- Explain concepts deeply.
+- Professional style.
+
+Content:
+{text}
+"""
+
+    else:
+        prompt = f"""
+Generate last minute revision notes.
+
+Rules:
+- Maximum 10 bullets.
+- Only key facts.
+- Very short.
+
+Content:
+{text}
+"""
+
+    return ai_generate(prompt)
+if api_key:
+    st.success("✅ Hugging Face API Connected")
+else:
+    st.error("❌ API Key Not Found")
 dark_mode = st.toggle("🌗 Dark Mode")
 if dark_mode:
     st.markdown("""
@@ -58,9 +179,24 @@ h1, h2, h3 {
 if "run_clicked" not in st.session_state:
     st.session_state.run_clicked = False
 
-st.title(" Intelligent Content Transformer")
+if "quiz" not in st.session_state:
+    st.session_state.quiz = None
+
+if "q_index" not in st.session_state:
+    st.session_state.q_index = 0
+
+if "score" not in st.session_state:
+    st.session_state.score = 0
+
+if "submitted" not in st.session_state:
+    st.session_state.submitted = False
+
+if "start_time" not in st.session_state:
+    st.session_state.start_time = time.time()
+st.title("📘 Intelligent Content Transformer")
 st.markdown("""
 <div style="
+    color: white;
     background-color: #262730;
     padding: 12px;
     border-radius: 10px;
@@ -113,218 +249,113 @@ mode = st.selectbox(
 
 # ---------------- FUNCTIONS ---------------- #
 
-def summarize(text, mode):
 
-    text = re.sub(r"\[.*?\]", "", text)
-    text = re.sub(r"\(.*?\)", "", text)
 
-    sentences = [s.strip() for s in text.split(".") if len(s.strip()) > 25]
 
-    if not sentences:
-        return "No meaningful content found."
 
-    if mode == "Detailed":
+def ai_smart_notes(text):
 
-        step = max(1, len(sentences)//8)
+    prompt = f"""
+You are an AI Study Assistant.
 
-        selected = []
+Generate Smart Notes from the following content.
 
-        for i in range(0, len(sentences), step):
-            selected.append(sentences[i])
+Rules:
+- Use clear headings.
+- Use bullet points.
+- Highlight important keywords.
+- Keep the notes concise and revision-friendly.
+- Do not miss important concepts.
 
-            if len(selected) >= 8:
-                break
+Content:
+{text}
+"""
 
-        return ". ".join(selected) + "."
+    return ai_generate(prompt)
 
-    elif mode == "Smart Summary":
 
-        important = []
 
-        important.append(sentences[0])
 
-        if len(sentences) > 4:
-            important.append(sentences[len(sentences)//4])
+def ai_study_plan(text):
 
-        if len(sentences) > 6:
-            important.append(sentences[len(sentences)//2])
+    prompt = f"""
+You are an AI Study Planner.
 
-        if len(sentences) > 8:
-            important.append(sentences[(3*len(sentences))//4])
+Create a study plan from the following content.
 
-        important.append(sentences[-1])
+Rules:
+- Divide into Day 1, Day 2, Day 3...
+- Mention topics to study each day.
+- Include revision day.
+- Mention estimated study time.
+- Keep it practical for students.
 
-        return ". ".join(important) + "."
+Content:
+{text}
+"""
 
-    elif mode == "Exam Notes":
+    return ai_generate(prompt)
 
-        notes = ""
+def ai_expand(text):
 
-        step = max(1, len(sentences)//5)
+    prompt = f"""
+You are an expert teacher.
 
-        count = 0
+Expand the following topic.
 
-        for i in range(0, len(sentences), step):
+Rules:
+- Explain every important concept.
+- Use simple English.
+- Give examples wherever possible.
+- Use headings and bullet points.
+- Do not skip any important information.
 
-            notes += f"📌 {sentences[i]}\n\n"
+Content:
+{text}
+"""
 
-            count += 1
+    return ai_generate(prompt)
 
-            if count == 5:
-                break
 
-        return notes
+def ai_generate_quiz(text):
 
-    elif mode == "Beginner":
+    prompt = f"""
+You are an AI Teacher.
 
-        first = sentences[0]
+Generate exactly 10 MCQs from the content.
 
-        return (
-            "👉 In simple words:\n\n"
-            + first
-            + ".\n\nThis topic explains the basic idea in an easy-to-understand way."
-        )
+Return ONLY a JSON array.
 
-    elif mode == "Advanced":
+Format:
 
-        step = max(1, len(sentences)//6)
+[
+  {{
+    "question":"...",
+    "options":["A","B","C","D"],
+    "answer":"..."
+  }}
+]
 
-        selected = []
+Rules:
+- Exactly 10 questions.
+- Exactly 4 options.
+- answer must exactly match one option.
+- No explanation.
+- Return only JSON.
 
-        for i in range(0, len(sentences), step):
+Content:
+{text}
+"""
 
-            selected.append(sentences[i])
+    response = ai_generate(prompt)
 
-            if len(selected) == 6:
-                break
-
-        return (
-            "Advanced Explanation:\n\n"
-            + ". ".join(selected)
-            + "."
-        )
-
-    elif mode == "Last Minute Revision":
-
-        step = max(1, len(sentences)//6)
-
-        revision = ""
-
-        count = 0
-
-        for i in range(0, len(sentences), step):
-
-            revision += f"✔ {sentences[i]}\n\n"
-
-            count += 1
-
-            if count == 6:
-                break
-
-        return revision
-
-
-def smart_notes(text):
-    sentences = text.split(".")
-    sentences = [s.strip() for s in sentences if s.strip()]
-    
-    if not sentences:
-        return "No meaningful content found."
-    
-    notes = ""
-    i = 0
-    
-    while i < len(sentences):
-        group = sentences[i:i+3]
-        first = re.sub(r"\[.*?\]|\(.*?\)", "", group[0])
-        words = first.split()
-
-        stopwords = [
-            "the","is","was","and","of","to","in","a","it","on",
-            "for","with","also","called","due","their","were","has",
-            "these","this","which","where","when","they","are","most","according"
-        ]
-
-        meaningful = [w for w in words if w.lower() not in stopwords and len(w) > 3 and w.isalpha()]
-
-        if not meaningful:
-            i += 3
-            continue
-
-        heading = " ".join(meaningful[:2]).title()
-
-        notes += f"### 📌 {heading}\n"
-
-        for line in group:
-            clean_line = re.sub(r"\[.*?\]|\(.*?\)", "", line)
-            notes += f"🧾 {clean_line.strip()}\n"
-
-        notes += "\n"
-        i += 3
-
-    return notes
-
-
-def generate_quiz_data(text):
-    sentences = text.split(".")
-    sentences = [s.strip() for s in sentences if s.strip()]
-    
-    quiz_data = []
-
-    # 🔥 FIXED: use full text (not only 5 sentences)
-    for sentence in sentences:
-        words = sentence.split()
-
-        if len(words) < 6:
-            continue
-
-        keywords = [w for w in words if w.isalpha() and len(w) > 4]
-
-        if len(keywords) < 4:
-            continue
-
-        answer = keywords[0]
-
-        options = random.sample(keywords, 3)
-        options.append(answer)
-        random.shuffle(options)
-
-        quiz_data.append({
-            "question": f"What is the key concept in:\n'{sentence}'?",
-            "options": options,
-            "answer": answer
-        })
-
-    return quiz_data[:10]   # 🔥 FIXED: max 10 questions
-
-def generate_study_plan(text):
-    sentences = text.split(".")
-    sentences = [s.strip() for s in sentences if s.strip()]
-    
-    if not sentences:
-        return "No content available"
-
-    topics = []
-
-    for s in sentences[:5]:
-        words = s.split()
-        topic = " ".join(words[:3])  # small heading
-        topics.append(topic)
-
-    plan = ""
-
-    days = ["Day 1", "Day 2", "Day 3", "Day 4", "Day 5"]
-
-    for i in range(min(len(topics), 5)):
-        plan += f"📅 {days[i]}: {topics[i]}\n"
-        plan += "   👉 Study concepts and understand basics\n\n"
-
-    return plan
-
-def expand(text):
-    return text + " This topic can be further understood by analyzing its key concepts, applications, and real-world examples in detail."
-
-
+    if response.startswith("❌"):
+        return response
+
+    try:
+        return json.loads(response)
+    except:
+        return []
 # ---------------- RUN ---------------- #
 
 if st.button("Run"):
@@ -339,13 +370,13 @@ if st.button("Run"):
 
 if st.session_state.run_clicked:
     if text:
-        with st.spinner("Processing..."):
+        with st.spinner("AI is generating your content..."):
 
             st.divider()
 
             if option == "Summarize":
                 st.success("✅ Summary Generated")
-                result = summarize(text, mode)
+                result = ai_summary(text, mode)
 
                 st.markdown(result)
 
@@ -354,43 +385,57 @@ if st.session_state.run_clicked:
             elif option == "Smart Notes":
                 st.success("📌 Smart Notes Generated")
 
-                notes = smart_notes(text)
+                notes = ai_smart_notes(text)
+
                 st.markdown(notes)
 
-                st.download_button("📥 Download Notes", notes, file_name="notes.txt")
-
+                st.download_button(
+                    "📥 Download Notes",
+                    notes,
+                    file_name="notes.txt"
+                )
             elif option == "Quiz":
-                st.success("🧪 Interactive Quiz")
+
+                st.success("🧪 Interactive AI Quiz")
 
                 if st.session_state.quiz is None:
-                    st.session_state.quiz = generate_quiz_data(text)
+                    st.session_state.quiz = ai_generate_quiz(text)
 
                 quiz = st.session_state.quiz
 
-                if not quiz:
-                    st.warning("Not enough content to generate quiz")
+                if isinstance(quiz, str):
+                    st.error(quiz)
+
+                elif not quiz:
+                    st.warning("Could not generate quiz.")
                 else:
+
                     if st.session_state.q_index >= len(quiz):
-                        st.success(f"🏁 Quiz Completed! Score: {st.session_state.score}/{len(quiz)}")
+                        st.success(
+                            f"🏁 Quiz Completed! Score: {st.session_state.score}/{len(quiz)}"
+                        )
 
                         if st.button("Restart Quiz"):
                             st.session_state.quiz = None
                             st.session_state.q_index = 0
                             st.session_state.score = 0
+                            st.session_state.submitted = False
                             st.session_state.start_time = time.time()
+                            st.rerun()
 
                         st.stop()
 
                     q = quiz[st.session_state.q_index]
 
                     st.subheader(f"Question {st.session_state.q_index + 1}")
+
                     st.write(q["question"])
 
-                    # 🔥 FIXED TIMER (stable)
                     time_elapsed = time.time() - st.session_state.start_time
                     time_left = int(15 - time_elapsed)
 
                     st.warning(f"⏱ Time Left: {max(0, time_left)} sec")
+
                     st.info(f"📊 Score: {st.session_state.score}")
 
                     if time_left <= 0:
@@ -405,38 +450,52 @@ if st.session_state.run_clicked:
                         key=f"radio_{st.session_state.q_index}"
                     )
 
-                    # 🔥 FIXED: prevent double scoring
                     if st.button("Submit Answer") and not st.session_state.submitted:
+
                         st.session_state.submitted = True
 
                         if selected == q["answer"]:
                             st.success("🎉 Correct!")
                             st.session_state.score += 1
                         else:
-                            st.error(f"Wrong! Answer: {q['answer']}")
+                            st.error(f"❌ Correct Answer: {q['answer']}")
 
                     if st.session_state.submitted:
-                        if st.button("Next Question"):
-                            st.session_state.q_index += 1
-                            st.session_state.submitted = False
-                            st.session_state.start_time = time.time()
-                            st.rerun()
 
+                        if st.button("Next Question"):
+
+                            st.session_state.q_index += 1
+
+                            st.session_state.submitted = False
+
+                            st.session_state.start_time = time.time()
+
+                            st.rerun()
             elif option == "Expand":
                 st.success("✅ Expanded Content Generated")
-                st.markdown(expand(text))
+
+                result = ai_expand(text)
+
+                st.markdown(result)
+
+                st.download_button(
+                    "📥 Download Expanded Notes",
+                    result,
+                    file_name="expanded_notes.txt"
+                )
+
             elif option == "Study Planner":
                 st.success("📅 Study Plan Generated")
 
-                plan = generate_study_plan(text)
+                plan = ai_study_plan(text)
 
-                st.text(plan)
+                st.markdown(plan)
 
                 st.download_button(
-        "📥 Download Study Plan",
-        plan,
-        file_name="study_plan.txt"
-    )
+                    "📥 Download Study Plan",
+                    plan,
+                    file_name="study_plan.txt"
+                )
 
     else:
         st.warning("Please enter text or upload a PDF")
